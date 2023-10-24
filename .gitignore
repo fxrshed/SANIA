@@ -202,3 +202,11 @@ experiments/plots
 .hostname
 *.txt
 
+experiments/plotter.ipynb
+experiments/Polyak.ipynb
+experiments/psps2_nn.ipynb
+experiments/test.ipynb
+experiments/train_nn.py
+experiments/optimizer.py
+experiments/models.py
+experiments/later.ipynb

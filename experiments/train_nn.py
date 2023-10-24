@@ -12,153 +12,104 @@ import torch
 from torch.utils.data import DataLoader
 import torch.utils.data as data_utils
 from torch.optim import SGD, Adam, Adagrad, Adadelta, RMSprop
-from torch_optimizer import Adahessian
+# from torch_optimizer import Adahessian
+
+from optimizer import PSPS2
+import datasets
+import loss_functions as lf
+import models
 
 from dotenv import load_dotenv
 load_dotenv()
 
-import datasets
-import models
-from projects.ScaledSPS.loss_functions import get_loss
 from utils import restricted_float
 
 torch.set_default_dtype(torch.float64)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def save_results(result, dataset, percent, scale, batch_size, epochs, loss_class, optimizer_class, lr, preconditioner, slack_method, lmd, mu, seed):
+optimizers_dict = {
+    "adam": Adam,
+    "adagrad": Adagrad,
+    # "adahessian": Adahessian,
+    "adadelta": Adadelta,
+    "psps2": PSPS2,
+}
+
+models_dict = {
+    "nn": models.NN,
+    "lenet": models.LeNet5,
+}
+
+
+def main(model_name, optimizer_name, dataset_name, 
+         batch_size, percentage, epochs, 
+         seed=0, save=True, lr=1.0,
+         precond_method=None, pcg_method=None,
+         hutch_init_iters=1000):
+
+    torch.random.manual_seed(seed)
+
+    data, target, dataloader = datasets.get_MNIST(batch_size, percentage)
+  
+    loss_function = torch.nn.CrossEntropyLoss
+    model = models_dict[model_name]
+
+    if optimizer_name == "psps2":
+        hist  = run_psps2(loss_function, data, target, dataloader, epochs, precond_method, 
+                          pcg_method=pcg_method, hutch_init_iters=hutch_init_iters, scaling_vec=scaling_vec)
+    elif optimizer_name == "sp2plus":
+        hist = run_sp2plus(loss_function, data, target, dataloader, epochs)
+    else:
+        optimizer = optimizers_dict[optimizer_name]
+        hist  = run_optimizer(optimizer, loss_function, data, target, dataloader, epochs, lr=lr)
+
+    
+    if save:
+        save_results(hist, dataset_name, percentage, scale, batch_size, epochs, loss_function_name, 
+                     optimizer_name, lr, precond_method, pcg_method, hutch_init_iters, seed)
+
+
+def save_results(result, dataset_name, percentage, scale, batch_size, epochs, loss_function_name, optimizer_name, lr, 
+                 precond_method, pcg_method, hutch_init_iters, seed):
+    
     results_path = os.getenv("RESULTS_DIR")
-    directory = f"{results_path}/{dataset}/percent_{percent}/scale_{scale}/bs_{batch_size}" \
-    f"/epochs_{epochs}/{loss_class}/{optimizer_class}/lr_{lr}/precond_{preconditioner}/slack_{slack_method}/lmd_{lmd}/mu_{mu}/seed_{seed}"
+    directory = f"{results_path}/{dataset_name}/percentage_{percentage}/scale_{scale}/bs_{batch_size}" \
+    f"/epochs_{epochs}/{loss_function_name}/{optimizer_name}/lr_{lr}/precond_{precond_method}/pcg_method_{pcg_method}/hutch_init_iters_{hutch_init_iters}/seed_{seed}"
+
     print(directory)
     if not os.path.exists(directory):
         os.makedirs(directory)
         
     torch.save([x[0] for x in result], f"{directory}/loss")
     torch.save([x[1] for x in result], f"{directory}/grad_norm_sq")
-    
-    if optimizer_class in ("sps", "sps2"):
-        torch.save([x[2] for x in result], f"{directory}/slack")
+    torch.save([x[2] for x in result], f"{directory}/acc")
 
 
-
-@torch.no_grad()
-def eval_model(model, loss_fn, data_loader):
-    n_correct = 0
-    n_samples = 0
-    loss = 0
-    
-    for images, labels in data_loader:
-        images = images.to(device)
-        labels = labels.to(device)
-        outputs = model(images)
-        loss += loss_fn(outputs, labels).item() / len(data_loader)
-        # max returns (value ,index)
-        _, predicted = torch.max(outputs.data, 1)
-        n_samples += labels.size(0)
-        n_correct += (predicted == labels).sum().item()  
-    
-    acc = 100.0 * n_correct / n_samples
-
-    return loss, acc
-
-
-def run_optimizer(model, criterion, train_loader, test_loader, epochs, log_every_n_epochs, optimizer_class, **optimizer_kwargs):
-    
-    torch.manual_seed(0)
-
-    optimizer = optimizer_class(model.parameters(), **optimizer_kwargs)
-
-    hist = []
-
-        
-    for epoch in range(epochs):
-
-        if epoch % log_every_n_epochs == 0:
-            with torch.no_grad():
-                train_loss, train_acc = eval_model(model, criterion, train_loader) 
-                print(f"[{epoch}] | Train Loss: {train_loss} | Train Acc: {train_acc}")
-                test_loss, test_acc = eval_model(model, criterion, test_loader)
-                print(f"[{epoch}] | Test Loss: {test_loss} | Test Acc: {test_acc}")
-                hist.append([train_loss, train_acc, test_loss, test_acc])
-
-        for i, (images, labels) in enumerate(train_loader):  
-            
-            images = images.to(device)
-            labels = labels.to(device)
-            
-            optimizer.zero_grad()
-            
-            def closure():
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                loss.backward(create_graph=True)
-                return loss
-            
-            if isinstance(optimizer, Adahessian): 
-                optimizer.step(closure) 
-            else:
-                loss = closure()
-                optimizer.step()
-        
-    return hist
-
-
-models_dict = {
-    "NN": models.NN,
-    "LeNet": models.LeNet
-}
-
-criterions_dict = {
-    "cross-entropy": torch.nn.CrossEntropyLoss(),
-}
-
-datasets_dict = {
-    "mnist": datasets.get_MNIST,
-    "MNIST": datasets.get_MNIST
-}
-
-optimizers_dict = {
-    "adam": Adam,
-    "adagrad": Adagrad,
-    "adahessian": Adahessian,
-}
-
-
-def run(model_name, criterion_name, dataset_name, 
-        batch_size, percentage, scale, epochs, optimizer_name, learning_rate, loss_name, seed):
-
-    torch.random.manual_seed(seed)
-
-    model = models_dict.get(model_name)
-    criterion = criterions_dict.get(criterion_name)
-    train_loader, test_loader = datasets_dict.get(dataset_name)(batch_size, percentage)
-    optimizer = optimizers_dict.get(optimizer_name)
-
-    hist = run_optimizer(model, criterion, train_loader, test_loader, epochs, optimizer, learning_rate=learning_rate)
-
-    save_results(result=hist, dataset=dataset_name, percent=percentage, scale=scale, batch_size=batch_size, 
-                epochs=epochs, loss_class=loss_name, optimizer_class="sgd", lr=round(lr, 5), preconditioner="none", slack_method="none", lmd=lmd, mu=mu, 
-                seed=seed)
-
-
-
-def main(lr, loss_name):
-    scales = [0, 3, 5]
-    seeds = [0, 1, 2, 3, 4]
-    for seed in seeds:
-        for scale in scales:
-            for dataset_name, batch_size, percentage in datasets_setup:
-                print(dataset_name, batch_size, percentage, scale, lr, seed)
-                run(dataset_name=dataset_name, batch_size=batch_size, percentage=percentage, scale=scale, epochs=500, learning_rate=lr, loss_name=loss_name, seed=seed)
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Help me!")
-    parser.add_argument("--lr", type=float, default=-1.0, help="-1.0 to choose optimized hyperparameter from optuna results.")
-    parser.add_argument("--loss", type=str, choices=["logreg", "nllsq"])
-
+    parser.add_argument("--dataset", type=str, help="Name of a dataset from datasets directory.")
+    parser.add_argument("--percentage", type=restricted_float, default=1.0, help="What percentage of data to use. Range from (0.0, 1.0].")
+    parser.add_argument("--scale", type=int, default=0, help="Scaling range. [-scale, scale].")
+    parser.add_argument("--batch_size", type=int)
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--loss", type=str, choices=["logreg", "nllsq", "mse"])
+    parser.add_argument("--optimizer", type=str, choices=["psps2", "sp2plus", "adam", "adagrad", "adadelta"])
+    parser.add_argument("--lr", type=float, default=1.0)
+    parser.add_argument("--precond_method", type=str, choices=["none", "hutch", "adam", "adam_m", "adagrad", "adagrad_m", "pcg", "scaling_vec"], default="none")
+    parser.add_argument("--pcg_method", type=str, choices=["none", "hutch", "adam", "adam_m", "adagrad", "adagrad_m"], default="none")
+    parser.add_argument("--hutch_init_iters", type=int, default=1000)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--save", action=argparse.BooleanOptionalAction, default=False, help="Select to save the results of the run.")
     args = parser.parse_args()
     print(f"device: {device}")
-    main(lr=args.lr, loss_name=args.loss)
+    print(args)
+
+    main(optimizer_name=args.optimizer, loss_function_name=args.loss, dataset_name=args.dataset, 
+         batch_size=args.batch_size, percentage=args.percentage, scale=args.scale, 
+         epochs=args.epochs, seed=args.seed, save=args.save, 
+         lr=args.lr, precond_method=args.precond_method, pcg_method=args.pcg_method,
+         hutch_init_iters=args.hutch_init_iters)

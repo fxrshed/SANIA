@@ -59,4 +59,4 @@ def get_libsvm(name, batch_size, percentage, scale=0, shuffle=True):
     train_load = TensorDataset(train_data, train_target)
     train_dataloader = DataLoader(train_load, batch_size=batch_size, shuffle=shuffle)
 
-    return train_data, train_target, train_dataloader
+    return train_data, train_target, train_dataloader, scaling_vec
