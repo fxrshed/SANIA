@@ -19,6 +19,48 @@ from torch.optim import SGD, Adam, Adagrad, Adadelta, RMSprop
 
 libsvm_namespace = ['mushrooms', 'colon-cancer', 'covtype.libsvm.binary', 'covtype.libsvm.binary.scale']
 
+def save_results(results, model_name, dataset_name, scale, batch_size,
+                 epochs, optimizer, lr, seed):
+
+    results_path = os.getenv("RESULTS_DIR")
+    directory = f"{results_path}/DNN/{dataset_name}/{model_name}/scale_{scale}/bs_{batch_size}" \
+    f"/epochs_{epochs}/{optimizer}/lr_{lr}/seed_{seed}"
+
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    assert "train_hist" in results, "train_hist is empty."
+    assert "test_hist" in results, "test_hist is empty."
+    assert "model_state_dict" in results, "model_state_dict is empty."
+
+    torch.save(results, f"{directory}/summary.pth")
+    print(f"Results saved to {directory}")
+
+def load_results(dataset_name: str, model_name: str, scale: int, batch_size: int, epochs: int, optimizer: str, lr: float, seed: int) -> dict:
+    
+    results_path = os.getenv("RESULTS_DIR")
+    if model_name == "xxx":
+        directory = f"{results_path}/DNN/{dataset_name}/scale_{scale}/bs_{batch_size}" \
+            f"/epochs_{epochs}/{optimizer}/lr_{lr}/seed_{seed}"
+    else:
+        directory = f"{results_path}/DNN/{dataset_name}/{model_name}/scale_{scale}/bs_{batch_size}" \
+            f"/epochs_{epochs}/{optimizer}/lr_{lr}/seed_{seed}"
+    
+    assert os.path.exists(directory), f"Results f{directory} do not exist."
+    
+    
+    results = torch.load(f"{directory}/summary.pth", map_location=torch.device('cpu'))
+    return results 
+
+
+
+
+
+
+
+
+
+
 # def get_dataset(name, batch_size, percentage=1.0, scale=None):
 
 #     datasets_path = os.getenv("DATASETS_DIR")
@@ -102,10 +144,6 @@ def get_dataset(dataset_name, percentage, scale):
     train_data_scaled = scaling_vec * train_data
 
     return train_data_scaled, train_target, scaling_vec
-
-
-
-
 
 def restricted_float(x):
     try:
