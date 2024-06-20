@@ -1,14 +1,13 @@
 import os
+import re
 
 import torch
 import torchvision
-import torchvision.transforms as transforms
+from torchvision.transforms import v2
 
 from torch.utils.data import TensorDataset, DataLoader
 
 import numpy as np
-
-from sklearn.datasets import load_svmlight_file
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -60,31 +59,21 @@ def get_MNIST(train_batch_size: int, test_batch_size: int, scale: int = 0, seed:
     n_features = (28, 28)
     uniform_matrix = (-scale - scale) * torch.rand(n_features) + scale
     scaling_matrix = torch.exp(uniform_matrix)
+    
+    transforms = v2.Compose([
+        v2.RandomRotation(10),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.1307,), (0.3081,),
+        ),
+    ])
 
-    train_data = torchvision.datasets.MNIST(TORCHVISION_DATASETS_DIR, train=True, download=True,
-                                transform=torchvision.transforms.Compose([
-                                torchvision.transforms.ToTensor(),
-                                torchvision.transforms.Normalize(
-                                    (0.1307,), (0.3081,)),
-                                CustomScaleTransform(scaling_matrix=scaling_matrix),
-                                ]))
+    train_data = torchvision.datasets.MNIST(TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms)
 
 
-    test_data = torchvision.datasets.MNIST(TORCHVISION_DATASETS_DIR, train=False, download=True,
-                                transform=torchvision.transforms.Compose([
-                                torchvision.transforms.ToTensor(),
-                                torchvision.transforms.Normalize(
-                                    (0.1307,), (0.3081,)),
-                                CustomScaleTransform(scaling_matrix=scaling_matrix),
-                                ]))
-
-    # train_length = 6000
-    # test_length = 1000
-    # subsample_train_indices = torch.randperm(len(train_data))[:train_length]
-    # subsample_test_indices = torch.randperm(len(test_data))[:test_length]
-
-    # train_loader = DataLoader(train_data, batch_size=batch_size_train, sampler=SubsetRandomSampler(subsample_train_indices))
-    # test_loader = DataLoader(test_data, batch_size=batch_size_test, sampler=SubsetRandomSampler(subsample_test_indices))
+    test_data = torchvision.datasets.MNIST(TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms)
 
     train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False)
@@ -93,79 +82,94 @@ def get_MNIST(train_batch_size: int, test_batch_size: int, scale: int = 0, seed:
 
 
 
-def get_CIFAR10(train_batch_size: int, test_batch_size: int, seed: int = 0) -> Tuple[DataLoader, DataLoader]:
+def get_CIFAR10(train_batch_size: int, test_batch_size: int, seed: int = 0) -> tuple[DataLoader, DataLoader]:
 
     torch.manual_seed(seed)
+    
+    transforms = v2.Compose([
+        v2.RandomResizedCrop(size=(32, 32), antialias=True),
+        v2.RandomHorizontalFlip(p=0.5),
+        v2.RandomRotation(10),
+        v2.RandomAffine(0, shear=10, scale=(0.8,1.2)),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261),
+        ),
+    ])
 
-    train_data = torchvision.datasets.CIFAR10(TORCHVISION_DATASETS_DIR, train=True, download=True,
-                                transform=torchvision.transforms.Compose([
-                                torchvision.transforms.ToTensor(),
-                                torchvision.transforms.Normalize(
-                                    (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),
-                                ]))
+    train_data = torchvision.datasets.CIFAR10(
+        TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms
+        )
 
-
-    test_data = torchvision.datasets.CIFAR10(TORCHVISION_DATASETS_DIR, train=False, download=True,
-                                transform=torchvision.transforms.Compose([
-                                torchvision.transforms.ToTensor(),
-                                torchvision.transforms.Normalize(
-                                    (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),
-                                ]))
+    test_data = torchvision.datasets.CIFAR10(
+        TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms
+        )
 
     train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=2)
     test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False, num_workers=2)
-    
+
     return train_loader, test_loader
+
+def get_CIFAR100(train_batch_size: int, test_batch_size: int, seed: int = 0) -> tuple[DataLoader, DataLoader]:
+
+    torch.manual_seed(seed)
+    
+    transforms = v2.Compose([
+        v2.RandomResizedCrop(size=(32, 32), antialias=True),
+        v2.RandomHorizontalFlip(p=0.5),
+        v2.RandomRotation(10),
+        v2.RandomAffine(0, shear=10, scale=(0.8,1.2)),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261),
+        ),
+    ])
+
+    train_data = torchvision.datasets.CIFAR100(
+        TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms
+        )
+
+    test_data = torchvision.datasets.CIFAR100(
+        TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms
+        )
+
+    train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False, num_workers=2)
+
+    return train_loader, test_loader
+
     
     
 def get_FashionMNIST(train_batch_size: int, test_batch_size: int, seed: int = 0) -> Tuple[DataLoader, DataLoader]:
 
     torch.manual_seed(seed)
+    
+    transforms = v2.Compose([
+        v2.RandomResizedCrop(size=(28, 28), antialias=True),
+        v2.RandomHorizontalFlip(p=0.5),
+        v2.RandomRotation(10),
+        v2.RandomAffine(0, shear=10, scale=(0.8,1.2)),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.5,), (0.5,),
+        ),
+    ])
 
-    train_data = torchvision.datasets.FashionMNIST(TORCHVISION_DATASETS_DIR, train=True, download=True,
-                                transform=torchvision.transforms.Compose([
-                                torchvision.transforms.ToTensor(),
-                                torchvision.transforms.Normalize(
-                                    (0.5,), (0.5,)),
-                                ]))
+    train_data = torchvision.datasets.FashionMNIST(
+        TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms
+        )
 
-
-    test_data = torchvision.datasets.FashionMNIST(TORCHVISION_DATASETS_DIR, train=False, download=True,
-                                transform=torchvision.transforms.Compose([
-                                torchvision.transforms.ToTensor(),
-                                torchvision.transforms.Normalize(
-                                    (0.5,), (0.5,)),
-                                ]))
+    test_data = torchvision.datasets.FashionMNIST(
+        TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms
+        )
 
     train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=2)
     test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False, num_workers=2)
     
     return train_loader, test_loader
-
-
-
-
-def get_libsvm(name, batch_size, percentage, scale=0, shuffle=True):
-
-    datasets_path = os.getenv("LIBSVM_DIR")
-    trainX, trainY = load_svmlight_file(f"{datasets_path}/{name}")
-    
-    sample = np.random.choice(trainX.shape[0], round(trainX.shape[0] * percentage), replace=False)
-
-    assert sample.shape == np.unique(sample).shape
-
-    trainX = trainX[sample]
-    trainY = trainY[sample]
-
-    train_data = torch.tensor(trainX.toarray())
-    train_target = torch.tensor(trainY)
-
-    r1 = -scale
-    r2 = scale
-    scaling_vec = (r1 - r2) * torch.rand(train_data.shape[1]) + r2
-    scaling_vec = torch.pow(torch.e, scaling_vec)
-    train_data = scaling_vec * train_data
-    train_load = TensorDataset(train_data, train_target)
-    train_dataloader = DataLoader(train_load, batch_size=batch_size, shuffle=shuffle)
-
-    return train_data, train_target, train_dataloader, scaling_vec
