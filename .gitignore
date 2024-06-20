@@ -200,4 +200,9 @@ cython_debug/
 slurm_*
 experiments/plots
 .hostname
+<<<<<<< HEAD
 *.txt
+=======
+*.txt
+experiments/optuna
+>>>>>>> fddfc48b25da0588881375ea49b98bc13c598400
