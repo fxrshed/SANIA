@@ -201,3 +201,4 @@ slurm_*
 experiments/plots
 .hostname
 *.txt
+experiments/optuna/
