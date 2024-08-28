@@ -236,6 +236,7 @@ def get_libsvm(name: str, test_split: float = 0.0, seed: int = 0):
     test_path = datasets_params[name].get("test_path")
     n_features = datasets_params[name]["n_features"]
 
+    print(train_path)
     train_data, train_target = svmlight_loader.load_svmlight_file(train_path, n_features=n_features)
     
     if test_path is not None:
