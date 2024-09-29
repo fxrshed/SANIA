@@ -5,9 +5,10 @@ import argparse
 
 
 import numpy as np
+import scipy
 
 import utils
-from loss_functions import LogisticRegressionLoss
+from loss_functions import CrossEntropyLoss
 from methods import *
 
 import neptune
@@ -15,29 +16,37 @@ import neptune
 from dotenv import load_dotenv
 load_dotenv()
 
+def one_hot_encode(y, n_classes):
+    one_hot_matrix = np.zeros((y.shape[0], n_classes))
+    one_hot_matrix[np.arange(y.shape[0]), y] = 1
+    return one_hot_matrix
+
+def predict(data, params):
+    z = data.dot(params)
+    y_pred = scipy.special.softmax(z, axis=1)
+    return np.argmax(y_pred, axis=1)
+
 def train_loop(dataset_name: str, scale: float, dataset: list, batch_size: int, n_epochs: int,
-               optimizer: BaseOptimizer, eps: float, lmd: float, neptune_mode: str, seed: int) -> dict: 
+               optimizer_name: str, lr: float, eps: float, lmd: float, neptune_mode: str, seed: int) -> dict: 
     
     np.random.seed(seed)
     
     train_data, train_target, test_data, test_target = dataset
     
     # parameters
-    params = np.zeros(train_data.shape[1])
-    optim = optimizer(params=params, eps=eps)
+    n_features = train_data.shape[1]
+    n_classes = len(np.unique(train_target))
+
+    params = np.zeros((n_features, n_classes))
+    
+    if optimizer_name in ["Adam", "Adagrad"]:
+        optimizer = optimizer_dict[optimizer_name](params=params, lr=lr)
+    else:
+        optimizer = optimizer_dict[optimizer_name](params=params, lr=lr, eps=eps)
 
     # oracle 
-    loss_function = LogisticRegressionLoss(lmd=lmd)
-    
-    # e.g. some libsvm datasets have {0.0, 1.0} classes that cannot be used for LogisticRegressionLoss 
-    # hence they will be remapped to {-1.0, 1.0}        
-    if isinstance(loss_function, LogisticRegressionLoss):
-        if not np.array_equal(np.unique(train_target), (-1.0, 1.0)):
-            train_target = utils.map_classes_to(train_target, (-1.0, 1.0))
-            test_target = utils.map_classes_to(test_target, (-1.0, 1.0))
-    
-    assert np.array_equal(np.unique(train_target), (-1.0, 1.0))
-    
+    loss_function = CrossEntropyLoss()
+
     # logging 
     history = defaultdict(list)
 
@@ -45,7 +54,7 @@ def train_loop(dataset_name: str, scale: float, dataset: list, batch_size: int, 
     
     run = neptune.init_run(
         mode=neptune_mode,
-        tags=["binary-classification", "linear"],
+        tags=["multiclass-classification", "linear"],
     )
     
     run["dataset"] = {
@@ -56,10 +65,7 @@ def train_loop(dataset_name: str, scale: float, dataset: list, batch_size: int, 
     }
     run["n_epochs"] = n_epochs
     run["seed"] = seed
-    run["optimizer/parameters"] = {
-        "name": optimizer.__name__,
-        **optim.defaults
-    }
+    
     run["loss_fn"] = {
         "name": loss_function.__class__.__name__,
         **loss_function.__dict__,
@@ -67,71 +73,41 @@ def train_loop(dataset_name: str, scale: float, dataset: list, batch_size: int, 
     run["model"] = "linear"
     run["device"] = "cpu"
     
+    run["optimizer/parameters/name"] = optimizer_name
+    run["optimizer/parameters"] = neptune.utils.stringify_unsupported(optimizer.defaults)
+   
     for epoch in range(n_epochs):
         
-        # Testing 
-        test_loss, test_grad, test_acc = loss_function.func_grad_acc(params, test_data, test_target)
-        test_g_norm = np.linalg.norm(test_grad)**2
-        history["test/loss"].append(test_loss)
-        history["test/acc"].append(test_acc)
-        history["test/grad_norm"].append(test_g_norm)
+        true = test_target.astype(int) - 1
+        pred = predict(test_data, params)
         
-        run["test/loss"].append(test_loss)
-        run["test/acc"].append(test_acc)
-        run["test/grad_norm"].append(test_g_norm)
-        
+        y_true = one_hot_encode(true, n_classes)
+        y_pred = one_hot_encode(pred, n_classes)
+        loss = loss_function.func(y_true, y_pred)
+        accuracy = (true == pred).mean()
 
-        # Training 
+        history["test/loss"].append(loss)
+        history["test/acc"].append(accuracy)
+        
+        run["test/loss"].append(loss)
+        run["test/acc"].append(accuracy)
+        
         np.random.shuffle(indices)
-
-        train_epoch_loss = 0.0
-        train_epoch_acc = 0.0
-        train_epoch_grad_norm = 0.0
         
         for idx in range(train_data.shape[0]//batch_size):
             batch_indices = indices[idx*batch_size:(idx+1)*batch_size]
             batch_data = train_data[batch_indices]
             batch_target = train_target[batch_indices] 
         
-            train_loss, train_grad, train_acc = loss_function.func_grad_acc(params, batch_data, batch_target)
+            y_true = one_hot_encode(batch_target.astype(int) - 1, n_classes)
+            y_pred = one_hot_encode(predict(batch_data, params), n_classes)
             
-            g_norm = np.linalg.norm(train_grad)**2
+            train_loss = loss_function.func(y_true, y_pred)
+            train_grad = loss_function.grad(batch_data, y_true, y_pred)
             
-            optim.step(loss=train_loss, grad=train_grad)
-
-            train_epoch_loss += train_loss
-            train_epoch_acc += train_acc
-            train_epoch_grad_norm += g_norm
+            optimizer.step(loss=train_loss, grad=train_grad)
             
-            history["train/batch/loss"].append(train_loss)
-            history["train/batch/acc"].append(train_acc)
-            history["train/batch/grad_norm"].append(g_norm)
-            
-            
-        train_epoch_loss = train_epoch_loss / (idx + 1)
-        train_epoch_acc = train_epoch_acc / (idx + 1)
-        train_epoch_grad_norm = train_epoch_grad_norm / (idx + 1)
-        
-        history["train/epoch/loss"].append(train_epoch_loss)
-        history["train/epoch/acc"].append(train_epoch_acc)
-        history["train/epoch/grad_norm"].append(train_epoch_grad_norm)
-        
-        run["train/loss"].append(train_epoch_loss)
-        run["train/acc"].append(train_epoch_acc)
-        run["train/grad_norm"].append(train_epoch_grad_norm)
-
-        
-    # Testing 
-    test_loss, test_grad, test_acc = loss_function.func_grad_acc(params, test_data, test_target)
-    test_g_norm = np.linalg.norm(test_grad)**2
-    history["test/loss"].append(test_loss)
-    history["test/acc"].append(test_acc)
-    history["test/grad_norm"].append(test_g_norm)    
-    history["params"].append(params)
-    
-    run["test/loss"].append(test_loss)
-    run["test/acc"].append(test_acc)
-    run["test/grad_norm"].append(test_g_norm)
+    print(f"After {n_epochs} epochs: Loss: {loss:.4f} | Acc: {accuracy:.2f}")
 
     return history
 
@@ -139,10 +115,12 @@ def train_loop(dataset_name: str, scale: float, dataset: list, batch_size: int, 
 optimizer_dict = {
     "SANIA_AdamSQR": SANIA_AdamSQR,
     "SANIA_AdagradSQR": SANIA_AdagradSQR,
+    "Adam": Adam,
+    "Adagrad": Adagrad,
 }
 
 def main(seed: int, dataset_name: str, test_split: float, scale: int, 
-         batch_size: int, n_epochs: int, optimizer: str, eps: float, lmd: float, save: bool,
+         batch_size: int, n_epochs: int, optimizer_name: str, lr: float, eps: float, lmd: float, save: bool,
          neptune_mode: str):
     
     train_data, train_target, test_data, test_target = utils.get_libsvm(name=dataset_name, test_split=test_split)
@@ -171,7 +149,8 @@ def main(seed: int, dataset_name: str, test_split: float, scale: int,
                         dataset=dataset,
                         batch_size=batch_size,
                         n_epochs=n_epochs,
-                        optimizer=optimizer_dict[optimizer], 
+                        optimizer_name=optimizer_name, 
+                        lr=lr,
                         eps=eps,
                         lmd=lmd,
                         neptune_mode=neptune_mode,
@@ -180,18 +159,19 @@ def main(seed: int, dataset_name: str, test_split: float, scale: int,
         if save:
             utils.save_results(results=hist, model_name="linear", dataset_name=dataset_name,
                         scale=scale, batch_size=batch_size, n_epochs=n_epochs, 
-                        optimizer=optimizer, lr=1.0, seed=seed)
+                        optimizer=optimizer_name, lr=lr, seed=seed)
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Help me!")
     parser.add_argument("--dataset", type=str, help="Name of a dataset from LibSVM datasets directory.")
-    parser.add_argument("--test_split", type=float, help="train-test split ratio.")
+    parser.add_argument("--test_split", type=float, default=0.0, help="train-test split ratio.")
     parser.add_argument("--scale", type=int, default=0, help="Scaling range. [-scale, scale].")
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--n_epochs", type=int)
-    parser.add_argument("--optimizer", type=str, choices=["SANIA_AdamSQR", "SANIA_AdagradSQR"])
+    parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR"])
+    parser.add_argument("--lr", type=float, default=1.0)
     parser.add_argument("--eps", type=float, default=0.0)
     parser.add_argument("--lmd", type=float, default=0.0)
     parser.add_argument("--save", action=argparse.BooleanOptionalAction, default=False, help="Select to save the results of the run.")
@@ -201,6 +181,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print(args)
     
-    main(seed=args.seed, dataset_name=args.dataset, test_split=args.test_split,
-        scale=args.scale, batch_size=args.batch_size, n_epochs=args.n_epochs, 
-        optimizer=args.optimizer, eps=args.eps, lmd=args.lmd, save=args.save, neptune_mode=args.neptune_mode)
+    main(seed=args.seed, 
+        dataset_name=args.dataset, 
+        test_split=args.test_split,
+        scale=args.scale, 
+        batch_size=args.batch_size, 
+        n_epochs=args.n_epochs, 
+        optimizer_name=args.optimizer, 
+        lr=args.lr, 
+        eps=args.eps, 
+        lmd=args.lmd, 
+        save=args.save, 
+        neptune_mode=args.neptune_mode)

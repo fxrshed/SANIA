@@ -6,14 +6,12 @@ import datetime
 
 import torch
 import torchvision
-import torchvision.transforms as transforms
-
-import matplotlib.pyplot as plt
+from torchvision.transforms import v2
+from torch.utils.data import TensorDataset, DataLoader
 
 from sklearn.model_selection import train_test_split
 
 import numpy as np
-import scipy
 
 import svmlight_loader
 
@@ -223,7 +221,38 @@ datasets_params = {
         "train_path": f"{datasets_path}/sonar_scale",
         "test_path": f"{datasets_path}/sonar_scale",
         "n_features": 60,
+    },
+    "wine.scale": {
+        "train_path": f"{datasets_path}/wine.scale",
+        "test_path": f"{datasets_path}/wine.scale",
+        "n_features": 13,
+    },
+    "sensorless.scale": {
+        "train_path": f"{datasets_path}/Sensorless.scale.tr",
+        "test_path": f"{datasets_path}/Sensorless.scale.val",
+        "n_features": 48,
+    },
+    "sector.scale": {
+        "train_path": f"{datasets_path}/sector.scale",
+        "test_path": f"{datasets_path}/sector.t.scale",
+        "n_features": 55_197,
+    },
+    "shuttle.scale": {
+        "train_path": f"{datasets_path}/shuttle.scale",
+        "test_path": f"{datasets_path}/shuttle.scale.t",
+        "n_features": 9,
+    },
+    "protein": {
+        "train_path": f"{datasets_path}/protein",
+        "test_path": f"{datasets_path}/protein.t",
+        "n_features": 357,
+    },
+    "usps": {
+        "train_path": f"{datasets_path}/usps",
+        "test_path": f"{datasets_path}/usps.t",
+        "n_features": 256,
     }
+    
 }
 
 
@@ -274,6 +303,159 @@ def map_classes_to(target, new_classes):
     return target
 
 
+TORCHVISION_DATASETS_DIR = os.getenv("TORCHVISION_DATASETS_DIR")
+
+def get_MNIST(train_batch_size: int, test_batch_size: int, seed: int = 0) -> tuple[DataLoader, DataLoader]:
+
+    torch.manual_seed(seed)
+    
+    transforms = v2.Compose([
+        v2.RandomRotation(10),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.1307,), (0.3081,),
+        ),
+    ])
+
+    train_data = torchvision.datasets.MNIST(TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms)
+    test_data = torchvision.datasets.MNIST(TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms)
+
+    train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False)
+    
+    return train_loader, test_loader
+
+
+
+def get_CIFAR10(train_batch_size: int, test_batch_size: int, size: tuple, seed: int = 0) -> tuple[DataLoader, DataLoader]:
+
+    torch.manual_seed(seed)
+    
+    transforms = v2.Compose([
+        v2.RandomResizedCrop(size=size, antialias=True),
+        v2.RandomHorizontalFlip(p=0.5),
+        v2.RandomRotation(10),
+        v2.RandomAffine(0, shear=10, scale=(0.8,1.2)),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261),
+        ),
+    ])
+
+    train_data = torchvision.datasets.CIFAR10(
+        TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms
+        )
+
+    test_data = torchvision.datasets.CIFAR10(
+        TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms
+        )
+
+    train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False, num_workers=2)
+
+    return train_loader, test_loader
+
+def get_CIFAR100(train_batch_size: int, test_batch_size: int, size: tuple, seed: int = 0) -> tuple[DataLoader, DataLoader]:
+
+    torch.manual_seed(seed)
+    
+    transforms = v2.Compose([
+        v2.RandomResizedCrop(size=size, antialias=True),
+        v2.RandomHorizontalFlip(p=0.5),
+        v2.RandomRotation(10),
+        v2.RandomAffine(0, shear=10, scale=(0.8,1.2)),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261),
+        ),
+    ])
+
+    train_data = torchvision.datasets.CIFAR100(
+        TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms
+        )
+    test_data = torchvision.datasets.CIFAR100(
+        TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms
+        )
+
+    train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False, num_workers=2)
+
+    return train_loader, test_loader
+
+    
+    
+def get_FashionMNIST(train_batch_size: int, test_batch_size: int, seed: int = 0) -> tuple[DataLoader, DataLoader]:
+
+    torch.manual_seed(seed)
+    
+    transforms = v2.Compose([
+        v2.RandomResizedCrop(size=(28, 28), antialias=True),
+        v2.RandomHorizontalFlip(p=0.5),
+        v2.RandomRotation(10),
+        v2.RandomAffine(0, shear=10, scale=(0.8,1.2)),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.5,), (0.5,),
+        ),
+    ])
+
+    train_data = torchvision.datasets.FashionMNIST(
+        TORCHVISION_DATASETS_DIR, train=True, download=True, transform=transforms
+        )
+
+    test_data = torchvision.datasets.FashionMNIST(
+        TORCHVISION_DATASETS_DIR, train=False, download=True, transform=transforms
+        )
+
+    train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False, num_workers=2)
+    
+    return train_loader, test_loader
+
+
+
+@torch.inference_mode
+def evaluate_classification_model(model: torch.nn.Module, criterion: torch.nn.Module, test_loader: DataLoader, device: torch.device) -> tuple[float, float, list[float], list[float]]:
+    
+    test_epoch_loss = 0.0
+    
+    test_batch_loss = []
+    test_batch_acc = []
+    
+    total = 0
+    correct = 0
+    for i, (batch_data, batch_target) in enumerate(test_loader):
+        batch_data = batch_data.to(device)
+        batch_target = batch_target.to(device)
+        
+        outputs = model(batch_data)
+        loss = criterion(outputs, batch_target)
+        test_epoch_loss += loss.item() * batch_data.size(0)
+        
+        _, predicted = torch.max(outputs.data, 1)
+        total += batch_target.size(0)
+        batch_correct = (predicted == batch_target).sum().item()
+        correct += batch_correct
+        
+        test_batch_loss.append(loss.item())
+        test_batch_acc.append(batch_correct)
+    
+    test_epoch_loss = test_epoch_loss / len(test_loader.sampler)
+    test_epoch_acc = correct / total
+    return test_epoch_loss, test_epoch_acc, test_batch_loss, test_batch_acc
+
+
+
+
+
 # def F_and_grad_res(X, y, w):
 #     r = np.exp( -X@w * y )
 #     ry = -r/(1+r) * y
@@ -314,5 +496,6 @@ def map_classes_to(target, new_classes):
     
 # end = time.perf_counter()
 # print(f"Time elapsed: {end - start}")
+
 
 

@@ -12,10 +12,11 @@ if module_path not in sys.path:
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+import torchvision
+from torchvision.transforms import v2
 import torch.optim as optim
 
-from utils import save_results
-from datasets import get_FashionMNIST
+from utils import get_FashionMNIST, save_results
 
 from SANIA import SANIA_AdamSQR, SANIA_AdagradSQR
 
@@ -25,8 +26,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 torch.set_default_dtype(torch.float64)
+torch.set_num_threads(2) # COMMENT OUT IF CPU IS NOT LIMITED
+os.environ["OMP_NUM_THREADS"] = "1" # !!
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+TORCHVISION_DATASETS_DIR = os.getenv("TORCHVISION_DATASETS_DIR")
 
 @torch.inference_mode
 def eval_model(model: nn.Module, criterion: nn.Module, test_loader: DataLoader) -> tuple[float, float, list[float], list[float]]:
@@ -58,36 +63,6 @@ def eval_model(model: nn.Module, criterion: nn.Module, test_loader: DataLoader) 
     test_epoch_acc = correct / total
     return test_epoch_loss, test_epoch_acc, test_batch_loss, test_batch_acc
 
-class LeNet5(nn.Module):
-    def __init__(self):
-        super(LeNet5, self).__init__()
-        self.conv1 = nn.Conv2d(1, 6, 5)
-        self.relu1 = nn.ReLU()
-        self.pool1 = nn.MaxPool2d(2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.relu2 = nn.ReLU()
-        self.pool2 = nn.MaxPool2d(2)
-        self.fc1 = nn.Linear(256, 120)
-        self.relu3 = nn.ReLU()
-        self.fc2 = nn.Linear(120, 84)
-        self.relu4 = nn.ReLU()
-        self.fc3 = nn.Linear(84, 10)
-
-    def forward(self, x):
-        y = self.conv1(x)
-        y = self.relu1(y)
-        y = self.pool1(y)
-        y = self.conv2(y)
-        y = self.relu2(y)
-        y = self.pool2(y)
-        y = y.view(y.shape[0], -1)
-        y = self.fc1(y)
-        y = self.relu3(y)
-        y = self.fc2(y)
-        y = self.relu4(y)
-        y = self.fc3(y)
-        return y
-    
 class LeNet5X(nn.Module):
     def __init__(self):
         super(LeNet5X, self).__init__()
@@ -121,6 +96,34 @@ class LeNet5X(nn.Module):
         y = self.relu5(y)
         y = self.fc4(y)
         return y
+    
+class SimpleConvNet(nn.Module):
+    
+    # https://github.com/kefth/fashion-mnist/blob/master/model.py
+
+    def __init__(self):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(1,32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+        self.classifier = nn.Sequential(
+            nn.Dropout(),
+            nn.Linear(64 * 7 * 7, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 10)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), 64 * 7 * 7)
+        x = self.classifier(x)
+        return x
 
 def run_optimizer(model: nn.Module, 
                   optimizer: nn.Module, 
@@ -147,10 +150,10 @@ def run_optimizer(model: nn.Module,
     }
     run["n_epochs"] = n_epochs
     run["seed"] = seed
-    run["optimizer/parameters"] = {
-        "name": optimizer.__class__.__name__,
-        **optimizer.defaults
-    }
+    
+    run["optimizer/parameters/name"] = optimizer.__class__.__name__
+    run["optimizer/parameters"] = neptune.utils.stringify_unsupported(optimizer.defaults)
+    
     run["model"] = model._get_name()
     run["device"] = str(device)
     
@@ -211,7 +214,7 @@ def run_optimizer(model: nn.Module,
 
 
 model_dict = {
-    "LeNet5": LeNet5,
+    "SimpleConvNet": SimpleConvNet,
     "LeNet5X": LeNet5X,
 }
 
@@ -232,9 +235,35 @@ def main(model_name: str, optimizer_name:str, lr: float, eps: float, n_epochs: i
         optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr)
     else:
         optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr, eps=eps)
-
     
-    train_loader, test_loader = get_FashionMNIST(train_batch_size, test_batch_size, seed=0)
+    train_transforms = v2.Compose([
+        v2.RandomRotation(10),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.ToImage(),
+        v2.ToDtype(torch.float64, scale=True),
+        v2.Normalize(
+            (0.1307,), (0.3081,),
+        ),
+    ])
+
+    test_transforms = v2.Compose([
+        v2.ToImage(),
+        v2.ToDtype(torch.get_default_dtype(), scale=True),
+        v2.Normalize(
+            (0.1307,), (0.3081,),
+        ),
+    ])
+
+    train_data = torchvision.datasets.FashionMNIST(
+        TORCHVISION_DATASETS_DIR, train=True, download=True, transform=train_transforms
+        )
+
+    test_data = torchvision.datasets.FashionMNIST(
+        TORCHVISION_DATASETS_DIR, train=False, download=True, transform=test_transforms
+        )
+
+    train_loader = DataLoader(train_data, batch_size=train_batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test_data, batch_size=test_batch_size, shuffle=False, num_workers=2)
     
     if seed == -1:
         seeds = [0, 1, 2, 3, 4]
@@ -266,13 +295,12 @@ def main(model_name: str, optimizer_name:str, lr: float, eps: float, n_epochs: i
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Help me!")
-    parser.add_argument("--model", type=str, choices=["LeNet5", "LeNet5X"])
+    parser.add_argument("--model", type=str, choices=["SimpleConvNet", "LeNet5X"])
     parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR"])
     parser.add_argument("--lr", type=float, default=1.0)
     parser.add_argument("--eps", type=float, default=1.0)
     parser.add_argument("--train_batch_size", type=int, default=64)
     parser.add_argument("--test_batch_size", type=int, default=2048)
-    parser.add_argument("--scale", type=int, default=0, help="Scaling range. [-scale, scale].")
     parser.add_argument("--n_epochs", type=int)
     parser.add_argument("--seed", type=int, default=0, help="Random seed, i.e. --seed=3 will run with seed(3). Enter -1 to train on 5 seeds.")
     parser.add_argument("--save", action=argparse.BooleanOptionalAction, default=False, help="Select to save the results of the run.")

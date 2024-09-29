@@ -121,13 +121,14 @@ class SANIA_AdagradSQR(BaseOptimizer):
         else:
             s = grad / (self.sum + self.eps)
             
-        # Scaled norm of gradients ||g||_{inv(B_t)}
-        grad_norm = np.dot(grad, s)
+        # Scaled norm of gradients squared ||g||^2_{inv(B_t)}
+        grad_norm = (grad*s).sum()
+        # grad_norm = np.dot(grad, s)
 
         # Polyak step size
         step_size = 1.0 
         if 2 * loss.item() <= grad_norm:
-            c = loss.item() / ( grad_norm )
+            c = loss.item() / ( grad_norm + 1e-10)
             det = 1 - 2 * c
             if det > 0.0:
                 step_size = 1 - np.sqrt(det)
@@ -165,14 +166,14 @@ class SANIA_AdamSQR(BaseOptimizer):
         else:
             s = grad / (v_hat + self.eps)
             
-        # Scaled norm of gradients ||g||_{inv(B_t)}
-        
-        grad_norm = np.dot(grad, s)
+        # Scaled norm of gradients squared ||g||^2_{inv(B_t)}
+        grad_norm = (grad*s).sum()
+        # grad_norm = np.dot(grad, s)
 
         # Polyak step size
         step_size = 1.0 
         if 2 * loss.item() <= grad_norm:
-            c = loss.item() / ( grad_norm )
+            c = loss.item() / ( grad_norm + 1e-10)
             det = 1 - 2 * c
             if det > 0.0:
                 step_size = 1 - np.sqrt(det)

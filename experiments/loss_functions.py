@@ -41,8 +41,17 @@ class LogisticRegressionLoss(BaseOracle):
         acc = (np.sign(sparse_dot) == target).sum() / target.shape[0]
 
         return f_val, grad_val, acc
-        
+    
+class CrossEntropyLoss(BaseOracle):
 
+    def func(self, y_true, y_pred):
+        return -np.mean(np.sum(y_true * np.log(y_pred + 1e-15), axis=1))
+    
+    def grad(self, data, y_true, y_pred):
+        return ( data.T.dot(y_pred - y_true) )  / data.shape[0] 
+    
+    def hess(self, x, data, target):
+        raise NotImplementedError
 
 
 def logreg(w, X, y):
