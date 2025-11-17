@@ -203,4 +203,7 @@ slurm_*
 experiments/optuna
 experiments/plots
 experiments/.neptune
+experiments/logs
+experiments/wandb
+experiments/ckpts
 

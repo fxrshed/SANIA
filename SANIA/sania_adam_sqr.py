@@ -75,7 +75,8 @@ class SANIA_AdamSQR(optim.Optimizer):
                 if det > 0.0:
                     step_size = (1 - torch.sqrt(det)).item()
 
+            group["lr"] = step_size
              # Update parameters
             with torch.no_grad():
                 for s, p in zip(preconditioned_grads, group["params"]):
-                    p.sub_(s, alpha=lr * step_size)
+                    p.sub_(s, alpha=step_size)
