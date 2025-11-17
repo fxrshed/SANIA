@@ -105,6 +105,7 @@ class SANIA_AdagradSQR(BaseOptimizer):
                  eps: float = 1e-8):
         self.params = params
         self.lr = lr 
+        self._init_lr = lr
         self.is_sqrt = is_sqrt
         self.eps = eps
         
@@ -133,7 +134,8 @@ class SANIA_AdagradSQR(BaseOptimizer):
             if det > 0.0:
                 step_size = 1 - np.sqrt(det)
         
-        self.params -= self.lr * step_size * s
+        self.lr = self._init_lr * step_size
+        self.params -= self.lr * s
         
         return loss, grad
 
@@ -145,6 +147,7 @@ class SANIA_AdamSQR(BaseOptimizer):
                  eps: float = 1e-8):
         self.params = params
         self.lr = lr 
+        self._init_lr = lr
         self.is_sqrt = is_sqrt
         self.eps = eps
         self.betas = betas
@@ -178,6 +181,34 @@ class SANIA_AdamSQR(BaseOptimizer):
             if det > 0.0:
                 step_size = 1 - np.sqrt(det)
         
-        self.params -= self.lr * step_size * s
+        self.lr = self._init_lr * step_size
+        self.params -= self.lr * s
 
+        return loss, grad
+
+
+class KATE(BaseOptimizer):
+    def __init__(self, params: np.ndarray, 
+                 lr: float = 1.0, 
+                 eta: float = 1e-3,
+                 eps: float = 1e-8):
+        self.params = params
+        self.lr = lr 
+        self.eps = eps
+        self.eta = eta
+        
+        self.sum_b = np.zeros_like(params)
+        self.sum_m = np.zeros_like(params)
+        
+        self.defaults = dict(lr=lr, eps=eps, eta=eta)
+        
+    def step(self, loss, grad):
+        
+        grad_sq = np.square(grad)
+        self.sum_b += grad_sq
+        denom = self.sum_b + self.eta
+        self.sum_m += np.multiply(self.eta, grad_sq) + (grad_sq / denom)
+
+        self.params -= self.lr * ((np.sqrt(self.sum_m) * grad) / denom)
+        
         return loss, grad

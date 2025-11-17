@@ -21,7 +21,7 @@ from torchvision.models.resnet import ResNet, BasicBlock, _resnet
 
 from utils import save_results, evaluate_classification_model
 
-from SANIA import SANIA_AdamSQR, SANIA_AdagradSQR
+from SANIA import SANIA_AdamSQR, SANIA_AdagradSQR, KATE
 
 import neptune
 
@@ -35,8 +35,6 @@ os.environ["OMP_NUM_THREADS"] = "1" # !!
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 TORCHVISION_DATASETS_DIR = os.getenv("TORCHVISION_DATASETS_DIR")
-
-
 
 def small_resnet(*, weights = None, progress: bool = True, **kwargs: Any) -> ResNet:
     return _resnet(BasicBlock, [1, 1, 1, 1], weights, progress, **kwargs)
@@ -78,15 +76,21 @@ def run_optimizer(model: nn.Module,
 
         model.eval()
         with torch.inference_mode():
-            test_loss, test_acc, test_batch_loss, test_batch_acc = evaluate_classification_model(model=model, criterion=criterion, test_loader=test_loader, device=device)
+            test_loss, test_acc, test_batch_loss, test_batch_acc, top1_acc, top3_acc, top5_acc = evaluate_classification_model(model=model, criterion=criterion, test_loader=test_loader, device=device)
             
             history["test/epoch/loss"].append(test_loss)
             history["test/epoch/acc"].append(test_acc)
             history["test/batch/loss"] += test_batch_loss
             history["test/batch/acc"] += test_batch_acc
-            
+            history["test/epoch/top1_acc"].append(top1_acc)
+            history["test/epoch/top3_acc"].append(top3_acc)
+            history["test/epoch/top5_acc"].append(top5_acc)
+
             run["test/loss"].append(test_loss)
             run["test/acc"].append(test_acc)
+            run["test/top1_acc"].append(top1_acc)
+            run["test/top3_acc"].append(top3_acc)
+            run["test/top5_acc"].append(top5_acc)
 
         print(f"Epoch [{epoch}/{n_epochs}] | Test Loss: {test_loss} | Test Acc: {test_acc}")
         
@@ -114,6 +118,11 @@ def run_optimizer(model: nn.Module,
 
             loss.backward()
             optimizer.step(closure=closure)
+            
+            step_size = optimizer.param_groups[0]["lr"]
+            history["step_size"].append(step_size)
+            run["step_size"].append(step_size)
+            
             
             history["train/batch/loss"].append(loss.item())
             history["train/batch/acc"].append(batch_correct)
@@ -143,6 +152,7 @@ optim_dict = {
     "Adagrad": optim.Adagrad,
     "SANIA_AdamSQR": SANIA_AdamSQR,
     "SANIA_AdagradSQR": SANIA_AdagradSQR,
+    "KATE": KATE
 }
 
 def main(model_name: str, optimizer_name: str, lr: float, eps: float, n_epochs: int, train_batch_size: int, test_batch_size: int, 
@@ -189,6 +199,8 @@ def main(model_name: str, optimizer_name: str, lr: float, eps: float, n_epochs: 
     model = models_dict[model_name](num_classes=len(train_loader.dataset.classes)).to(device)
     if optimizer_name in ["Adam", "Adagrad"]:
         optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr)
+    elif optimizer_name == "KATE":
+        optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr)
     else:
         optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr, eps=eps)
 
@@ -224,7 +236,7 @@ def main(model_name: str, optimizer_name: str, lr: float, eps: float, n_epochs: 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Help me!")
-    parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR"])
+    parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR", "KATE"])
     parser.add_argument("--lr", type=float, default=1.0)
     parser.add_argument("--eps", type=float, default=1.0)
     parser.add_argument("--train_batch_size", type=int, default=64)

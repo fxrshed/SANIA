@@ -184,7 +184,7 @@ datasets_params = {
         "test_path": f"{datasets_path}/madelon.t",
         "n_features": 500,
     },
-    "gisette": {
+    "gisette_scale": {
         "train_path": f"{datasets_path}/gisette_scale",
         "test_path": f"{datasets_path}/gisette_scale.t",
         "n_features": 5000,
@@ -251,7 +251,21 @@ datasets_params = {
         "train_path": f"{datasets_path}/usps",
         "test_path": f"{datasets_path}/usps.t",
         "n_features": 256,
-    }
+    },
+    "dna.scale": {
+        "train_path": f"{datasets_path}/dna.scale",
+        "test_path": f"{datasets_path}/dna.scale.t",
+        "n_features": 180,
+    },
+    "aloi.scale": {
+        "train_path": f"{datasets_path}/aloi.scale",
+        "n_features": 128,
+    },
+    "cod-rna": {
+        "train_path": f"{datasets_path}/cod-rna",
+        "test_path": f"{datasets_path}/cod-rna.t",
+        "n_features": 8,
+    },
     
 }
 
@@ -265,7 +279,6 @@ def get_libsvm(name: str, test_split: float = 0.0, seed: int = 0):
     test_path = datasets_params[name].get("test_path")
     n_features = datasets_params[name]["n_features"]
 
-    print(train_path)
     train_data, train_target = svmlight_loader.load_svmlight_file(train_path, n_features=n_features)
     
     if test_path is not None:
@@ -421,6 +434,15 @@ def get_FashionMNIST(train_batch_size: int, test_batch_size: int, seed: int = 0)
     return train_loader, test_loader
 
 
+def compute_topk_accuracy(output, target, k=5):
+    """Compute top-k accuracy for the given outputs and targets."""
+    with torch.no_grad():
+        # Get the top-k indices
+        _, topk_indices = output.topk(k, dim=1)
+        # Check if targets are in the top-k predictions
+        correct = topk_indices.eq(target.view(-1, 1).expand_as(topk_indices))
+        # Compute accuracy
+        return correct.any(dim=1).float().mean().item()
 
 @torch.inference_mode
 def evaluate_classification_model(model: torch.nn.Module, criterion: torch.nn.Module, test_loader: DataLoader, device: torch.device) -> tuple[float, float, list[float], list[float]]:
@@ -432,6 +454,9 @@ def evaluate_classification_model(model: torch.nn.Module, criterion: torch.nn.Mo
     
     total = 0
     correct = 0
+    top1_acc = 0.0
+    top3_acc = 0.0
+    top5_acc = 0.0
     for i, (batch_data, batch_target) in enumerate(test_loader):
         batch_data = batch_data.to(device)
         batch_target = batch_target.to(device)
@@ -445,12 +470,21 @@ def evaluate_classification_model(model: torch.nn.Module, criterion: torch.nn.Mo
         batch_correct = (predicted == batch_target).sum().item()
         correct += batch_correct
         
+        top1_acc += compute_topk_accuracy(outputs, batch_target, k=1) * batch_target.size(0)
+        top3_acc += compute_topk_accuracy(outputs, batch_target, k=3) * batch_target.size(0)
+        top5_acc += compute_topk_accuracy(outputs, batch_target, k=5) * batch_target.size(0)
+        
         test_batch_loss.append(loss.item())
         test_batch_acc.append(batch_correct)
     
     test_epoch_loss = test_epoch_loss / len(test_loader.sampler)
     test_epoch_acc = correct / total
-    return test_epoch_loss, test_epoch_acc, test_batch_loss, test_batch_acc
+    
+    top1_acc /= total
+    top3_acc /= total
+    top5_acc /= total
+    
+    return test_epoch_loss, test_epoch_acc, test_batch_loss, test_batch_acc, top1_acc, top3_acc, top5_acc
 
 
 

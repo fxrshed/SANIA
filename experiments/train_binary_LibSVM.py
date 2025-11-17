@@ -25,7 +25,7 @@ def train_loop(dataset_name: str, scale: float, dataset: list, batch_size: int, 
     # parameters
     params = np.zeros(train_data.shape[1])
     
-    if optimizer_name in ["Adam", "Adagrad"]:
+    if optimizer_name in ["Adam", "Adagrad", "KATE", "SGD"]:
         optimizer = optimizer_dict[optimizer_name](params=params, lr=lr)
     else:
         optimizer = optimizer_dict[optimizer_name](params=params, lr=lr, eps=eps)
@@ -103,6 +103,10 @@ def train_loop(dataset_name: str, scale: float, dataset: list, batch_size: int, 
             g_norm = np.linalg.norm(train_grad)**2
             
             optimizer.step(loss=train_loss, grad=train_grad)
+            
+            if optimizer.__class__.__name__ in ["SANIA_AdagradSQR", "SANIA_AdamSQR"]:
+                history["lr"].append(optimizer.lr)
+                run["lr"].append(optimizer.lr)
 
             train_epoch_loss += train_loss
             train_epoch_acc += train_acc
@@ -146,6 +150,8 @@ optimizer_dict = {
     "SANIA_AdagradSQR": SANIA_AdagradSQR,
     "Adam": Adam,
     "Adagrad": Adagrad,
+    "KATE": KATE,
+    "SGD": SGD,
 }
 
 def main(seed: int, dataset_name: str, test_split: float, scale: int, 
@@ -195,11 +201,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Help me!")
     parser.add_argument("--dataset", type=str, help="Name of a dataset from LibSVM datasets directory.")
-    parser.add_argument("--test_split", type=float, default=0.0, help="train-test split ratio.")
+    parser.add_argument("--test_split", type=float, default=0.2, help="train-test split ratio.")
     parser.add_argument("--scale", type=int, default=0, help="Scaling range. [-scale, scale].")
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--n_epochs", type=int)
-    parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR"])
+    parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR", "KATE", "SGD"])
     parser.add_argument("--lr", type=float, default=1.0)
     parser.add_argument("--eps", type=float, default=0.0)
     parser.add_argument("--lmd", type=float, default=0.0)

@@ -16,7 +16,7 @@ import torch.optim as optim
 
 from utils import get_MNIST, save_results
 
-from SANIA import SANIA_AdamSQR, SANIA_AdagradSQR
+from SANIA import SANIA_AdamSQR, SANIA_AdagradSQR, KATE
 
 import neptune
 
@@ -220,6 +220,7 @@ optim_dict = {
     "Adagrad": optim.Adagrad,
     "SANIA_AdamSQR": SANIA_AdamSQR,
     "SANIA_AdagradSQR": SANIA_AdagradSQR,
+    "KATE": KATE,
 }
 
 def main(model_name: str, optimizer_name:str, lr: float, eps: float, n_epochs: int, train_batch_size: int, test_batch_size: int, 
@@ -230,6 +231,8 @@ def main(model_name: str, optimizer_name:str, lr: float, eps: float, n_epochs: i
     model = model_dict[model_name]().to(device)
     if optimizer_name in ["Adam", "Adagrad"]:
         optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr)
+    elif optimizer_name == "KATE":
+        optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr, eta=1e-3, eps=1e-4)
     else:
         optimizer = optim_dict[optimizer_name](model.parameters(), lr=lr, eps=eps)
     
@@ -265,7 +268,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Help me!")
     parser.add_argument("--model", type=str, choices=["LeNet5", "LeNet5X"])
-    parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR"])
+    parser.add_argument("--optimizer", type=str, choices=["Adam", "Adagrad", "SANIA_AdamSQR", "SANIA_AdagradSQR", "KATE"])
     parser.add_argument("--lr", type=float, default=1.0)
     parser.add_argument("--eps", type=float, default=1.0)
     parser.add_argument("--train_batch_size", type=int, default=64)
